@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+  xsi:type="TaskPaneApp">
+
+  <Id>b573ba15-3f05-42fa-9c61-beea7bd0fa25</Id>
+  <Version>1.1.0.0</Version>
+  <ProviderName>FTIR Dashboard</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="FTIR Dashboard"/>
+  <Description DefaultValue="Interactive Plotly FTIR dashboard with native Excel chart export."/>
+  <IconUrl DefaultValue="https://bartgawel.github.io/FTIRDashboard/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://bartgawel.github.io/FTIRDashboard/assets/icon-80.png"/>
+  <SupportUrl DefaultValue="https://bartgawel.github.io/FTIRDashboard/"/>
+
+  <AppDomains>
+    <AppDomain>https://bartgawel.github.io</AppDomain>
+    <AppDomain>https://cdn.plot.ly</AppDomain>
+  </AppDomains>
+
+  <Hosts>
+    <Host Name="Workbook"/>
+  </Hosts>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://bartgawel.github.io/FTIRDashboard/"/>
+  </DefaultSettings>
+
+  <Permissions>ReadWriteDocument</Permissions>
+
+  <VersionOverrides
+    xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+    xsi:type="VersionOverridesV1_0">
+
+    <Hosts>
+      <Host xsi:type="Workbook">
+        <DesktopFormFactor>
+          <FunctionFile resid="Commands.Url"/>
+
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabAddIns">
+              <Group id="FTIR.Group">
+                <Label resid="FTIR.GroupLabel"/>
+
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+
+                <Control xsi:type="Button" id="FTIR.OpenDashboard">
+                  <Label resid="FTIR.OpenLabel"/>
+                  <Supertip>
+                    <Title resid="FTIR.OpenLabel"/>
+                    <Description resid="FTIR.OpenDescription"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16"/>
+                    <bt:Image size="32" resid="Icon.32"/>
+                    <bt:Image size="80" resid="Icon.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>FTIR.Taskpane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16" DefaultValue="https://bartgawel.github.io/FTIRDashboard/assets/icon-16.png"/>
+        <bt:Image id="Icon.32" DefaultValue="https://bartgawel.github.io/FTIRDashboard/assets/icon-32.png"/>
+        <bt:Image id="Icon.80" DefaultValue="https://bartgawel.github.io/FTIRDashboard/assets/icon-80.png"/>
+      </bt:Images>
+
+      <bt:Urls>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://bartgawel.github.io/FTIRDashboard/"/>
+        <bt:Url id="Commands.Url" DefaultValue="https://bartgawel.github.io/FTIRDashboard/"/>
+      </bt:Urls>
+
+      <bt:ShortStrings>
+        <bt:String id="FTIR.GroupLabel" DefaultValue="FTIR"/>
+        <bt:String id="FTIR.OpenLabel" DefaultValue="Open Dashboard"/>
+      </bt:ShortStrings>
+
+      <bt:LongStrings>
+        <bt:String
+          id="FTIR.OpenDescription"
+          DefaultValue="Open the interactive FTIR Plotly dashboard and native Excel chart tools."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>
