@@ -1,0 +1,38 @@
+* { box-sizing: border-box; }
+html, body { width:100%; height:100%; }
+body { margin:0; font-family:"Segoe UI",Arial,sans-serif; background:#f5f6f8; color:#202124; overflow:auto; }
+.panel { padding:14px; max-width:1250px; margin:0 auto; }
+header { margin-bottom:12px; }
+.eyebrow { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#667085; }
+h1 { margin:3px 0 5px; font-size:24px; }
+h3 { margin:2px 0 10px; }
+.sub { margin:0; color:#667085; font-size:13px; }
+.tabs { display:flex; gap:6px; margin-bottom:10px; }
+.tab { width:auto; border:0; border-radius:7px; padding:8px 12px; cursor:pointer; background:#e9edf3; font-weight:600; }
+.tab.active { background:#1f6feb; color:#fff; }
+.tabpage { display:none; }
+.tabpage.active { display:block; }
+.card { background:#fff; border:1px solid #e1e5ea; border-radius:10px; padding:12px; margin-bottom:10px; }
+label { display:block; font-size:12px; font-weight:600; margin:9px 0 4px; }
+select, button { min-height:34px; border-radius:6px; font:inherit; }
+select { width:100%; border:1px solid #c8ced8; background:#fff; padding:5px 8px; }
+button { border:0; cursor:pointer; padding:7px 9px; font-weight:600; }
+.primary { width:100%; background:#1f6feb; color:#fff; margin-top:10px; }
+.secondary { background:#e9edf3; color:#202124; }
+.toolbar { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:10px; }
+.sample-list { max-height:170px; overflow-y:auto; border:1px solid #e3e6ea; border-radius:7px; margin-top:9px; padding:6px; }
+.sample-row { display:flex; gap:7px; align-items:center; padding:4px 2px; font-size:12px; }
+.check { display:flex; gap:7px; align-items:center; font-weight:500; }
+.check input { width:auto; }
+.chart-card { padding:8px; }
+.plot { width:100%; height:380px; }
+.plot.tall { height:480px; }
+.status { padding:9px 11px; border-radius:8px; border:1px solid #d6e8ff; background:#eef6ff; font-size:12px; }
+.status.ok { border-color:#ccebd6; background:#eefaf2; }
+.status.error { border-color:#ffd1d1; background:#fff0f0; }
+.table-wrap { overflow:auto; max-height:360px; }
+table { border-collapse:collapse; width:100%; font-size:12px; }
+th, td { border-bottom:1px solid #e5e7eb; padding:6px 8px; text-align:right; white-space:nowrap; }
+th:first-child, td:first-child { text-align:left; }
+th { position:sticky; top:0; background:#fff; }
+@media (min-width:900px) { .plot { height:430px; } .plot.tall { height:520px; } }

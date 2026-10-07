@@ -3,392 +3,368 @@
 let spectraCache = {};
 let qcCache = {};
 let sampleNames = [];
-let refreshTimer = null;
-let busy = false;
+let fitCurveCache = {};
+let peakDetails = [];
+let peakAreas = [];
+let fitQuality = [];
+let timer = null;
 
 Office.onReady(async (info) => {
   if (info.host !== Office.HostType.Excel) return;
 
-  document.getElementById("stage").addEventListener("change", async () => {
-    await readWorkbookData();
-    renderAll();
+  document.querySelectorAll(".tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+      document.querySelectorAll(".tabpage").forEach(x => x.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(btn.dataset.tab).classList.add("active");
+      setTimeout(() => {
+        Plotly.Plots.resize("mainPlot");
+        Plotly.Plots.resize("qcPlot");
+        Plotly.Plots.resize("fitPlot");
+        Plotly.Plots.resize("areaPlot");
+      }, 50);
+    });
   });
 
+  document.getElementById("stage").addEventListener("change", async () => {
+    await readSpectra();
+    renderSpectra();
+  });
   document.getElementById("qcSample").addEventListener("change", renderQc);
+  document.getElementById("fitSample").addEventListener("change", renderFit);
+  document.getElementById("showComponents").addEventListener("change", renderFit);
+  document.getElementById("areaMetric").addEventListener("change", renderAreas);
 
   document.getElementById("selectAll").addEventListener("click", () => {
     document.querySelectorAll(".sample-toggle").forEach(x => x.checked = true);
     renderMain();
   });
-
   document.getElementById("clearAll").addEventListener("click", () => {
     document.querySelectorAll(".sample-toggle").forEach(x => x.checked = false);
     renderMain();
   });
 
   document.getElementById("refresh").addEventListener("click", async () => {
-    await readWorkbookData();
+    await readSpectra();
+    await readFitResults();
     renderAll();
   });
+  document.getElementById("reloadFit").addEventListener("click", async () => {
+    await readFitResults();
+    renderFit();
+    renderAreas();
+  });
 
-  document.getElementById("native").addEventListener("click", buildNativeDashboard);
-
-  await readWorkbookData();
+  await readSpectra();
+  await readFitResults();
   renderAll();
-  await registerStatusWatcher();
+  await registerWatchers();
 });
 
-function setStatus(message, kind = "") {
+function status(msg, kind="") {
   const el = document.getElementById("status");
-  el.textContent = message;
+  el.textContent = msg;
   el.className = `status ${kind}`.trim();
 }
 
 function selectedSamples() {
   return Array.from(document.querySelectorAll(".sample-toggle"))
-    .filter(x => x.checked)
-    .map(x => x.value);
+    .filter(x => x.checked).map(x => x.value);
 }
 
-async function readWorkbookData() {
-  if (busy) return;
-  busy = true;
-
+async function readSpectra() {
   const stage = document.getElementById("stage").value;
 
   try {
-    setStatus(`Reading ${stage} data…`);
+    await Excel.run(async ctx => {
+      const sheets = ctx.workbook.worksheets;
+      const names = [stage, "Log", "Baseline", "Corrected", "Smoothed"];
+      const ws = {};
+      names.forEach(n => {
+        ws[n] = sheets.getItemOrNullObject(n);
+        ws[n].load("isNullObject");
+      });
+      await ctx.sync();
 
-    await Excel.run(async (context) => {
-      const sheets = context.workbook.worksheets;
+      for (const n of names) if (ws[n].isNullObject) throw new Error(`Sheet "${n}" not found.`);
 
-      const stageSheet = sheets.getItemOrNullObject(stage);
-      stageSheet.load("isNullObject");
+      const used = {};
+      names.forEach(n => {
+        used[n] = ws[n].getUsedRange();
+        used[n].load("values,rowCount,columnCount");
+      });
+      await ctx.sync();
 
-      const logSheet = sheets.getItemOrNullObject("Log");
-      logSheet.load("isNullObject");
-
-      const baselineSheet = sheets.getItemOrNullObject("Baseline");
-      baselineSheet.load("isNullObject");
-
-      const correctedSheet = sheets.getItemOrNullObject("Corrected");
-      correctedSheet.load("isNullObject");
-
-      const smoothedSheet = sheets.getItemOrNullObject("Smoothed");
-      smoothedSheet.load("isNullObject");
-
-      await context.sync();
-
-      if (stageSheet.isNullObject) throw new Error(`Sheet "${stage}" not found.`);
-      if (logSheet.isNullObject || baselineSheet.isNullObject ||
-          correctedSheet.isNullObject || smoothedSheet.isNullObject) {
-        throw new Error("Required FTIR processing sheets are missing.");
-      }
-
-      const stageUsed = stageSheet.getUsedRange();
-      stageUsed.load("values,rowCount,columnCount");
-
-      const logUsed = logSheet.getUsedRange();
-      logUsed.load("values,rowCount,columnCount");
-
-      const baseUsed = baselineSheet.getUsedRange();
-      baseUsed.load("values,rowCount,columnCount");
-
-      const corrUsed = correctedSheet.getUsedRange();
-      corrUsed.load("values,rowCount,columnCount");
-
-      const smoothUsed = smoothedSheet.getUsedRange();
-      smoothUsed.load("values,rowCount,columnCount");
-
-      await context.sync();
-
-      const v = stageUsed.values;
-      const headers = v[0];
-      const x = v.slice(1).map(r => Number(r[0]));
-
+      const main = used[stage].values;
+      const headers = main[0];
+      const x = main.slice(1).map(r => Number(r[0]));
       spectraCache = {};
       sampleNames = [];
 
-      for (let c = 1; c < stageUsed.columnCount; c++) {
+      for (let c=1; c<used[stage].columnCount; c++) {
         const name = String(headers[c] ?? "").trim();
         if (!name) continue;
         sampleNames.push(name);
-        spectraCache[name] = {
-          x,
-          y: v.slice(1).map(r => Number(r[c]))
-        };
+        spectraCache[name] = {x, y: main.slice(1).map(r => Number(r[c]))};
       }
 
-      function convertQc(usedRange) {
-        const vals = usedRange.values;
-        const h = vals[0].map(z => String(z ?? "").trim());
-        const xx = vals.slice(1).map(r => Number(r[0]));
-        const out = {};
-        for (let c = 1; c < usedRange.columnCount; c++) {
-          const name = h[c];
-          if (!name) continue;
-          out[name] = {
-            x: xx,
-            y: vals.slice(1).map(r => Number(r[c]))
-          };
+      function conv(u) {
+        const vals=u.values, h=vals[0].map(v=>String(v??"").trim());
+        const xx=vals.slice(1).map(r=>Number(r[0]));
+        const out={};
+        for (let c=1;c<u.columnCount;c++) {
+          if (!h[c]) continue;
+          out[h[c]]={x:xx,y:vals.slice(1).map(r=>Number(r[c]))};
         }
         return out;
       }
 
       qcCache = {
-        Log: convertQc(logUsed),
-        Baseline: convertQc(baseUsed),
-        Corrected: convertQc(corrUsed),
-        Smoothed: convertQc(smoothUsed)
+        Log:conv(used.Log),
+        Baseline:conv(used.Baseline),
+        Corrected:conv(used.Corrected),
+        Smoothed:conv(used.Smoothed)
       };
     });
 
-    rebuildSelectors();
-    setStatus(`Loaded ${sampleNames.length} spectra.`, "ok");
-
-  } catch (error) {
-    console.error(error);
-    setStatus(error.message || String(error), "error");
-  } finally {
-    busy = false;
+    rebuildSpectraSelectors();
+    status(`Loaded ${sampleNames.length} spectra.`, "ok");
+  } catch(e) {
+    console.error(e);
+    status(e.message || String(e), "error");
   }
 }
 
-function rebuildSelectors() {
-  const list = document.getElementById("sampleList");
-  const previouslySelected = new Set(selectedSamples());
-  list.innerHTML = "";
+function rebuildSpectraSelectors() {
+  const list=document.getElementById("sampleList");
+  const previous=new Set(selectedSamples());
+  list.innerHTML="";
 
-  sampleNames.forEach((name) => {
-    const row = document.createElement("label");
-    row.className = "sample-row";
-
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.className = "sample-toggle";
-    cb.value = name;
-    cb.checked = previouslySelected.size ? previouslySelected.has(name) : true;
-    cb.addEventListener("change", renderMain);
-
-    const text = document.createElement("span");
-    text.textContent = name;
-
-    row.appendChild(cb);
-    row.appendChild(text);
-    list.appendChild(row);
+  sampleNames.forEach(name=>{
+    const row=document.createElement("label");
+    row.className="sample-row";
+    const cb=document.createElement("input");
+    cb.type="checkbox"; cb.className="sample-toggle"; cb.value=name;
+    cb.checked=previous.size ? previous.has(name) : true;
+    cb.addEventListener("change",renderMain);
+    const span=document.createElement("span"); span.textContent=name;
+    row.append(cb,span); list.appendChild(row);
   });
 
-  const qc = document.getElementById("qcSample");
-  const prev = qc.value;
-  qc.innerHTML = "";
-
-  sampleNames.forEach(name => {
-    const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = name;
-    qc.appendChild(opt);
+  const qc=document.getElementById("qcSample");
+  const prev=qc.value; qc.innerHTML="";
+  sampleNames.forEach(name=>{
+    const o=document.createElement("option"); o.value=name; o.textContent=name; qc.appendChild(o);
   });
-
-  if (sampleNames.includes(prev)) qc.value = prev;
+  if (sampleNames.includes(prev)) qc.value=prev;
 }
 
-function renderAll() {
-  renderMain();
-  renderQc();
-}
-
-function renderMain() {
-  const stage = document.getElementById("stage").value;
-  const chosen = selectedSamples();
-
-  const traces = chosen.map(name => ({
-    x: spectraCache[name]?.x || [],
-    y: spectraCache[name]?.y || [],
-    type: "scatter",
-    mode: "lines",
-    name
-  }));
-
-  const layout = {
-    margin: { l: 55, r: 20, t: 35, b: 50 },
-    title: { text: `${stage} FTIR spectra`, font: { size: 15 } },
-    xaxis: {
-      title: "Wavenumber (cm⁻¹)",
-      autorange: "reversed"
-    },
-    yaxis: {
-      title: stage === "Normalized" ? "Normalized intensity" : "Intensity"
-    },
-    legend: { orientation: "h" },
-    hovermode: "x unified"
-  };
-
-  Plotly.react("mainPlot", traces, layout, {
-    responsive: true,
-    displaylogo: false,
-    scrollZoom: true
-  });
-}
-
-function renderQc() {
-  const sample = document.getElementById("qcSample").value;
-  if (!sample) return;
-
-  const names = ["Log", "Baseline", "Corrected", "Smoothed"];
-  const labelMap = {
-    Log: "-log(R)",
-    Baseline: "Baseline",
-    Corrected: "Corrected",
-    Smoothed: "Smoothed"
-  };
-
-  const traces = names
-    .filter(stage => qcCache[stage]?.[sample])
-    .map(stage => ({
-      x: qcCache[stage][sample].x,
-      y: qcCache[stage][sample].y,
-      type: "scatter",
-      mode: "lines",
-      name: labelMap[stage]
-    }));
-
-  const layout = {
-    margin: { l: 55, r: 20, t: 35, b: 50 },
-    title: { text: `Processing QC — ${sample}`, font: { size: 15 } },
-    xaxis: {
-      title: "Wavenumber (cm⁻¹)",
-      autorange: "reversed"
-    },
-    yaxis: { title: "Intensity" },
-    legend: { orientation: "h" },
-    hovermode: "x unified"
-  };
-
-  Plotly.react("qcPlot", traces, layout, {
-    responsive: true,
-    displaylogo: false,
-    scrollZoom: true
-  });
-}
-
-async function buildNativeDashboard() {
-  const stage = document.getElementById("stage").value;
-  const chosen = selectedSamples();
-  const qcSample = document.getElementById("qcSample").value;
-
-  if (!chosen.length) {
-    setStatus("Select at least one spectrum before creating native charts.", "error");
-    return;
-  }
-
+async function readFitResults() {
   try {
-    setStatus("Building native Excel dashboard…");
+    await Excel.run(async ctx=>{
+      const sheets=ctx.workbook.worksheets;
+      const cn=["Fit_Curves","Peak_Details","Peak_Areas","Fit_Quality"];
+      const ws={};
+      cn.forEach(n=>{ ws[n]=sheets.getItemOrNullObject(n); ws[n].load("isNullObject"); });
+      await ctx.sync();
 
-    await Excel.run(async (context) => {
-      const sheets = context.workbook.worksheets;
-      const stageSheet = sheets.getItem(stage);
-
-      const used = stageSheet.getUsedRange();
-      used.load("rowCount,columnCount,values");
-      await context.sync();
-
-      const nPoints = used.rowCount - 1;
-      const headers = used.values[0].map(v => String(v ?? "").trim());
-
-      let dashboard = sheets.getItemOrNullObject("Dashboard");
-      dashboard.load("isNullObject");
-      await context.sync();
-      if (dashboard.isNullObject) dashboard = sheets.add("Dashboard");
-
-      const charts = dashboard.charts;
-      charts.load("items");
-      await context.sync();
-      charts.items.forEach(c => c.delete());
-
-      dashboard.getRange("A1:B6").clear();
-      dashboard.getRange("A1:B5").values = [
-        ["FTIR Dashboard", ""],
-        ["Processing stage", stage],
-        ["Spectra plotted", chosen.length],
-        ["QC sample", qcSample],
-        ["Source", "FTIR embedded Plotly add-in"]
-      ];
-
-      dashboard.getRange("A1").format.font.bold = true;
-      dashboard.getRange("A1").format.font.size = 18;
-      dashboard.getRange("A2:A5").format.font.bold = true;
-      dashboard.getRange("A:B").format.autofitColumns();
-
-      const dummy = dashboard.getRange("Z1:AA2");
-      dummy.values = [["X","Y"],[0,0]];
-
-      const chart = dashboard.charts.add(
-        Excel.ChartType.xyscatterLinesNoMarkers,
-        dummy,
-        Excel.ChartSeriesBy.columns
-      );
-
-      chart.name = "FTIR_SelectedSpectra";
-      chart.title.text = `${stage} — selected FTIR spectra`;
-      chart.setPosition("D2", "O25");
-
-      chart.series.load("items");
-      await context.sync();
-      chart.series.items.forEach(s => s.delete());
-
-      const xRange = stageSheet.getRangeByIndexes(1, 0, nPoints, 1);
-
-      for (const name of chosen) {
-        const idx = headers.indexOf(name);
-        if (idx < 1) continue;
-        const series = chart.series.add(name);
-        series.setXAxisValues(xRange);
-        series.setValues(stageSheet.getRangeByIndexes(1, idx, nPoints, 1));
-      }
-
-      chart.axes.categoryAxis.title.text = "Wavenumber (cm⁻¹)";
-      chart.axes.categoryAxis.title.visible = true;
-      chart.axes.categoryAxis.reversePlotOrder = true;
-      chart.axes.valueAxis.title.text = stage === "Normalized" ? "Normalized intensity" : "Intensity";
-      chart.axes.valueAxis.title.visible = true;
-      chart.legend.visible = true;
-
-      dashboard.activate();
-      await context.sync();
-    });
-
-    setStatus("Native Excel dashboard updated.", "ok");
-  } catch (error) {
-    console.error(error);
-    setStatus(error.message || String(error), "error");
-  }
-}
-
-async function registerStatusWatcher() {
-  try {
-    await Excel.run(async (context) => {
-      const ws = context.workbook.worksheets.getItemOrNullObject("FTIR_Status");
-      ws.load("isNullObject");
-      await context.sync();
-
-      if (ws.isNullObject) {
-        setStatus("Embedded dashboard ready. Run Python processing to enable auto-refresh.");
+      if (ws.Fit_Curves.isNullObject) {
+        fitCurveCache={}; peakDetails=[]; peakAreas=[]; fitQuality=[];
         return;
       }
 
-      ws.onChanged.add(() => {
-        if (!document.getElementById("autoRefresh").checked) return;
-        if (refreshTimer) clearTimeout(refreshTimer);
-
-        refreshTimer = setTimeout(async () => {
-          await readWorkbookData();
-          renderAll();
-        }, 700);
+      const used={};
+      cn.forEach(n=>{
+        if (!ws[n].isNullObject) {
+          used[n]=ws[n].getUsedRange();
+          used[n].load("values,rowCount,columnCount");
+        }
       });
+      await ctx.sync();
 
-      await context.sync();
+      // Fit curves.
+      const vals=used.Fit_Curves.values;
+      const headers=vals[0].map(v=>String(v??""));
+      const x=vals.slice(1).map(r=>Number(r[0]));
+      fitCurveCache={};
+
+      for (let c=1;c<headers.length;c++) {
+        const parts=headers[c].split("|");
+        if (parts.length!==2) continue;
+        const sample=parts[0], kind=parts[1];
+        if (!fitCurveCache[sample]) fitCurveCache[sample]={x,series:{}};
+        fitCurveCache[sample].series[kind]=vals.slice(1).map(r=>Number(r[c]));
+      }
+
+      peakDetails = used.Peak_Details ? tableObjects(used.Peak_Details.values) : [];
+      peakAreas = used.Peak_Areas ? tableObjects(used.Peak_Areas.values) : [];
+      fitQuality = used.Fit_Quality ? tableObjects(used.Fit_Quality.values) : [];
     });
-  } catch (error) {
-    console.error(error);
+
+    rebuildFitSelector();
+  } catch(e) {
+    console.error(e);
   }
+}
+
+function tableObjects(values) {
+  if (!values || !values.length) return [];
+  const h=values[0].map(v=>String(v??""));
+  return values.slice(1)
+    .filter(r=>r.some(v=>v!==null && v!==""))
+    .map(r=>{
+      const o={}; h.forEach((k,i)=>o[k]=r[i]); return o;
+    });
+}
+
+function rebuildFitSelector() {
+  const sel=document.getElementById("fitSample");
+  const prev=sel.value; sel.innerHTML="";
+  Object.keys(fitCurveCache).forEach(name=>{
+    const o=document.createElement("option"); o.value=name; o.textContent=name; sel.appendChild(o);
+  });
+  if (fitCurveCache[prev]) sel.value=prev;
+}
+
+function renderAll() {
+  renderSpectra();
+  renderFit();
+  renderAreas();
+}
+
+function renderSpectra() { renderMain(); renderQc(); }
+
+function renderMain() {
+  const stage=document.getElementById("stage").value;
+  const traces=selectedSamples().map(name=>({
+    x:spectraCache[name]?.x||[], y:spectraCache[name]?.y||[],
+    type:"scatter",mode:"lines",name
+  }));
+  Plotly.react("mainPlot",traces,{
+    margin:{l:55,r:20,t:38,b:50},
+    title:{text:`${stage} FTIR spectra`,font:{size:15}},
+    xaxis:{title:"Wavenumber (cm⁻¹)",autorange:"reversed"},
+    yaxis:{title:stage==="Normalized"?"Normalized intensity":"Intensity"},
+    legend:{orientation:"h"},hovermode:"x unified"
+  },{responsive:true,displaylogo:false,scrollZoom:true});
+}
+
+function renderQc() {
+  const sample=document.getElementById("qcSample").value;
+  if (!sample) return;
+  const order=["Log","Baseline","Corrected","Smoothed"];
+  const labels={Log:"-log(R)",Baseline:"Baseline",Corrected:"Corrected",Smoothed:"Smoothed"};
+  const traces=order.filter(k=>qcCache[k]?.[sample]).map(k=>({
+    x:qcCache[k][sample].x,y:qcCache[k][sample].y,type:"scatter",mode:"lines",name:labels[k]
+  }));
+  Plotly.react("qcPlot",traces,{
+    margin:{l:55,r:20,t:38,b:50},
+    title:{text:`Processing QC — ${sample}`,font:{size:15}},
+    xaxis:{title:"Wavenumber (cm⁻¹)",autorange:"reversed"},
+    yaxis:{title:"Intensity"},legend:{orientation:"h"},hovermode:"x unified"
+  },{responsive:true,displaylogo:false,scrollZoom:true});
+}
+
+function renderFit() {
+  const sample=document.getElementById("fitSample").value;
+  const obj=fitCurveCache[sample];
+  if (!obj) {
+    Plotly.react("fitPlot",[],{title:"Run fit_ftir_peaks in Python to generate fitting results."});
+    document.getElementById("peakTable").innerHTML="";
+    return;
+  }
+
+  const s=obj.series;
+  const traces=[];
+  if (s.Observed) traces.push({x:obj.x,y:s.Observed,type:"scatter",mode:"lines",name:"Observed",line:{width:2}});
+  if (s.TotalFit) traces.push({x:obj.x,y:s.TotalFit,type:"scatter",mode:"lines",name:"Total fit",line:{width:3}});
+  if (document.getElementById("showComponents").checked) {
+    Object.keys(s).filter(k=>!["Observed","TotalFit","Residual"].includes(k)).forEach(k=>{
+      traces.push({x:obj.x,y:s[k],type:"scatter",mode:"lines",name:k});
+    });
+  }
+
+  Plotly.react("fitPlot",traces,{
+    margin:{l:55,r:20,t:42,b:50},
+    title:{text:`Gaussian deconvolution — ${sample}`,font:{size:15}},
+    xaxis:{title:"Wavenumber (cm⁻¹)",autorange:"reversed"},
+    yaxis:{title:"Intensity"},hovermode:"x unified"
+  },{responsive:true,displaylogo:false,scrollZoom:true});
+
+  const rows=peakDetails.filter(r=>String(r.Sample)===sample);
+  document.getElementById("peakTable").innerHTML=makeTable(
+    rows,
+    ["PeakLabel","Center_cm-1","Height","FWHM_cm-1","Area_FitWindow","Area_FullGaussian"]
+  );
+}
+
+function renderAreas() {
+  if (!peakAreas.length) {
+    Plotly.react("areaPlot",[],{title:"Run fit_ftir_peaks in Python to generate peak areas."});
+    document.getElementById("qualityTable").innerHTML="";
+    return;
+  }
+
+  const mode=document.getElementById("areaMetric").value;
+  const keys=Object.keys(peakAreas[0]).filter(k=>k.endsWith("_Area"));
+  const traces=keys.map(k=>{
+    const label=k.replace("_Area","");
+    const y=peakAreas.map(r=>{
+      const val=Number(r[k]||0);
+      if (mode==="absolute") return val;
+      const total=Number(r.Total_Component_Area||0);
+      return total ? 100*val/total : 0;
+    });
+    return {type:"bar",name:label,x:peakAreas.map(r=>String(r.Sample)),y};
+  });
+
+  Plotly.react("areaPlot",traces,{
+    barmode:"stack",
+    margin:{l:60,r:20,t:42,b:80},
+    title:{text:mode==="absolute"?"Gaussian peak areas":"Peak area fractions",font:{size:15}},
+    xaxis:{title:"Sample"},
+    yaxis:{title:mode==="absolute"?"Integrated area":"Area fraction (%)"}
+  },{responsive:true,displaylogo:false});
+
+  document.getElementById("qualityTable").innerHTML=makeTable(
+    fitQuality,
+    ["Sample","Success","R2","RMSE","MAE","NFEV"]
+  );
+}
+
+function makeTable(rows, cols) {
+  if (!rows.length) return "<p>No data.</p>";
+  const fmt=v=>{
+    if (typeof v==="number") return Number.isFinite(v) ? v.toPrecision(6) : "";
+    return String(v??"");
+  };
+  return `<table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${fmt(r[c])}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+async function registerWatchers() {
+  try {
+    await Excel.run(async ctx=>{
+      const sheets=ctx.workbook.worksheets;
+      const names=["FTIR_Status","Fit_Status"];
+      for (const name of names) {
+        const ws=sheets.getItemOrNullObject(name);
+        ws.load("isNullObject");
+        await ctx.sync();
+        if (!ws.isNullObject) {
+          ws.onChanged.add(()=>{
+            if (!document.getElementById("autoRefresh").checked) return;
+            if (timer) clearTimeout(timer);
+            timer=setTimeout(async()=>{
+              await readSpectra();
+              await readFitResults();
+              renderAll();
+            },700);
+          });
+        }
+      }
+      await ctx.sync();
+    });
+  } catch(e) { console.error(e); }
 }

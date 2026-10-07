@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FTIR Dashboard</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<main class="panel">
+  <header>
+    <div class="eyebrow">Excel FTIR</div>
+    <h1>FTIR Analysis Dashboard</h1>
+    <p class="sub">Spectra processing and Gaussian peak deconvolution.</p>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="spectraTab">Spectra</button>
+    <button class="tab" data-tab="fitTab">Gaussian fitting</button>
+    <button class="tab" data-tab="areasTab">Peak areas</button>
+  </nav>
+
+  <section id="spectraTab" class="tabpage active">
+    <section class="card">
+      <label for="stage">Processing stage</label>
+      <select id="stage">
+        <option value="Log">Log / pseudo-absorbance</option>
+        <option value="Corrected">Baseline corrected</option>
+        <option value="Smoothed" selected>Smoothed</option>
+        <option value="Normalized">Normalized</option>
+      </select>
+
+      <div class="toolbar">
+        <button id="selectAll" class="secondary">Select all</button>
+        <button id="clearAll" class="secondary">Clear all</button>
+      </div>
+
+      <div id="sampleList" class="sample-list"></div>
+
+      <label for="qcSample">QC sample</label>
+      <select id="qcSample"></select>
+
+      <label class="check">
+        <input type="checkbox" id="autoRefresh" checked />
+        Auto-refresh after Python processing
+      </label>
+
+      <button id="refresh" class="primary">Reload workbook data</button>
+    </section>
+
+    <section class="card chart-card">
+      <div id="mainPlot" class="plot"></div>
+    </section>
+
+    <section class="card chart-card">
+      <div id="qcPlot" class="plot"></div>
+    </section>
+  </section>
+
+  <section id="fitTab" class="tabpage">
+    <section class="card">
+      <label for="fitSample">Fitted sample</label>
+      <select id="fitSample"></select>
+
+      <label class="check">
+        <input type="checkbox" id="showComponents" checked />
+        Show individual Gaussian components
+      </label>
+
+      <button id="reloadFit" class="primary">Reload fitting results</button>
+    </section>
+
+    <section class="card chart-card">
+      <div id="fitPlot" class="plot tall"></div>
+    </section>
+
+    <section class="card">
+      <h3>Peak parameters</h3>
+      <div id="peakTable" class="table-wrap"></div>
+    </section>
+  </section>
+
+  <section id="areasTab" class="tabpage">
+    <section class="card">
+      <label for="areaMetric">Area display</label>
+      <select id="areaMetric">
+        <option value="absolute">Absolute fitted areas</option>
+        <option value="fraction">Fraction of total component area</option>
+      </select>
+    </section>
+
+    <section class="card chart-card">
+      <div id="areaPlot" class="plot tall"></div>
+    </section>
+
+    <section class="card">
+      <h3>Fit quality</h3>
+      <div id="qualityTable" class="table-wrap"></div>
+    </section>
+  </section>
+
+  <div id="status" class="status">Starting…</div>
+</main>
+<script src="taskpane.js"></script>
+</body>
+</html>
